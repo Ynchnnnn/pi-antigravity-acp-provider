@@ -54,10 +54,20 @@ export interface AntigravityAuthHealth {
 	settingsFile: boolean;
 }
 
+/** Resolves `<home>/antigravity-acp`, where `<home>` is `$GEMINI_HOME` when set
+ * and non-empty, otherwise `~/.gemini`. The server relocates its whole tree --
+ * including `acp_token.json` -- under an explicit `GEMINI_HOME` (an embedding
+ * host may set it per workspace), so health checks must follow it. */
+export function resolveAntigravityAcpDirectory(env: NodeJS.ProcessEnv = process.env): string {
+	const home = env.GEMINI_HOME?.trim();
+	const base = home ? expandHome(home) : path.join(os.homedir(), ".gemini");
+	return path.join(base, "antigravity-acp");
+}
+
 /** Structural local health only. A network probe is required to call an OAuth
  * token valid; secret values are never returned or logged. */
 export function inspectAntigravityAuth(
-	directory = path.join(os.homedir(), ".gemini", "antigravity-acp"),
+	directory = resolveAntigravityAcpDirectory(),
 ): AntigravityAuthHealth {
 	const tokenPath = path.join(directory, "acp_token.json");
 	const settingsPath = path.join(directory, "settings.json");
@@ -98,7 +108,7 @@ export function hasAntigravityAuth(): boolean {
 /** Local logout. Google currently advertises logout as an agent command rather
  * than an ACP SDK RPC, so this removes the local refresh token and auth choice. */
 export function clearAntigravityCredentials(
-	directory = path.join(os.homedir(), ".gemini", "antigravity-acp"),
+	directory = resolveAntigravityAcpDirectory(),
 ): void {
 	fs.rmSync(path.join(directory, "acp_token.json"), { force: true });
 	const settingsPath = path.join(directory, "settings.json");
