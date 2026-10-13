@@ -184,7 +184,7 @@ export default function antigravityAcpExtension(pi: ExtensionAPI): void {
 					`Runtime: installed=${setup.installedVersion ?? "external/unknown"} approved=${update?.approvedVersion ?? setup.approvedVersion} registry=${update?.latestVersion ?? "unavailable"} updates=${setup.updateMode}; ACP SDK ${ACP_SDK_VERSION}, protocol ${ACP_PROTOCOL_VERSION}`,
 					`Antigravity server: ${entry}`,
 					`Authentication: ${auth.status}${auth.authType ? ` (${auth.authType})` : ""}`,
-					`Credential storage: ${describeCredentialStorage()}`,
+					`Credential storage (preflight): ${describeCredentialStorage()}`,
 					`Requested permission mode: ${permissionModeLabel(snapshot.permissionMode)}`,
 					`Active bindings: ${snapshot.bindings}`,
 					formatMetrics(snapshot.metrics),

@@ -13,15 +13,29 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
+	vi.unstubAllEnvs();
 	for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-function tokenPathWith(content: string | undefined): string {
+function temporaryRoot(): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "antigravity-storage-"));
 	roots.push(root);
-	const tokenPath = path.join(root, "acp_token.json");
+	return root;
+}
+
+function tokenPathWith(content: string | undefined): string {
+	const tokenPath = path.join(temporaryRoot(), "acp_token.json");
 	if (content !== undefined) fs.writeFileSync(tokenPath, content);
 	return tokenPath;
+}
+
+/** A relocated store home (`GEMINI_HOME` or `HOME`) with the server's token. */
+function homeWithToken(): string {
+	const home = temporaryRoot();
+	const directory = path.join(home, "antigravity-acp");
+	fs.mkdirSync(directory, { recursive: true });
+	fs.writeFileSync(path.join(directory, "acp_token.json"), refreshable);
+	return home;
 }
 
 const refreshable = '{"refresh_token":"fixture","client_id":"fixture"}';
@@ -93,7 +107,7 @@ describe("macOS credential storage selection", () => {
 	});
 
 	it("applies the decision without mutating the inherited environment", () => {
-		const source: NodeJS.ProcessEnv = { GEMINI_API_KEY: "fixture", PATH: "/usr/bin" };
+		const source: NodeJS.ProcessEnv = { TERM: "xterm-256color", PATH: "/usr/bin" };
 		const result = applyCredentialStorageEnvironment(source, {
 			platform: "darwin",
 			tokenPath: tokenPathWith(refreshable),
@@ -101,6 +115,72 @@ describe("macOS credential storage selection", () => {
 		});
 		expect(result[FORCE_FILE_STORAGE_ENV]).toBe("1");
 		expect(result.PATH).toBe("/usr/bin");
+		expect(result.TERM).toBe("xterm-256color");
 		expect(source[FORCE_FILE_STORAGE_ENV]).toBeUndefined();
+	});
+});
+
+describe("child environment resolution", () => {
+	// The child runs with its own HOME/GEMINI_HOME/API key, which can differ
+	// from the parent's. The decision must inspect the environment the child
+	// actually gets, not the launching process's own.
+
+	it("pins the child when only the child's GEMINI_HOME holds the token", () => {
+		vi.stubEnv("GEMINI_HOME", temporaryRoot());
+		const decision = resolveCredentialStorageDecision({
+			env: { GEMINI_HOME: homeWithToken() },
+			platform: "darwin",
+			keychainEntry: () => false,
+		});
+		expect(decision.reason).toBe("missing-keychain-entry");
+		expect(decision.env).toEqual({ [FORCE_FILE_STORAGE_ENV]: "1" });
+	});
+
+	it("leaves the child on the server default when only the parent holds the token", () => {
+		vi.stubEnv("GEMINI_HOME", homeWithToken());
+		const lookup = vi.fn(() => false);
+		const decision = resolveCredentialStorageDecision({
+			env: { GEMINI_HOME: temporaryRoot() },
+			platform: "darwin",
+			keychainEntry: lookup,
+		});
+		expect(decision).toEqual({ env: {}, reason: "no-refreshable-token-file" });
+		expect(lookup).not.toHaveBeenCalled();
+	});
+
+	it("ignores a parent-only API key when the child has a refreshable token", () => {
+		vi.stubEnv("GEMINI_HOME", temporaryRoot());
+		vi.stubEnv("GEMINI_API_KEY", "parent-key");
+		const decision = resolveCredentialStorageDecision({
+			env: { GEMINI_HOME: homeWithToken() },
+			platform: "darwin",
+			keychainEntry: () => false,
+		});
+		expect(decision.reason).toBe("missing-keychain-entry");
+	});
+
+	it("keeps the server default when the child authenticates with its own API key", () => {
+		const lookup = vi.fn(() => false);
+		const decision = resolveCredentialStorageDecision({
+			env: { GEMINI_HOME: homeWithToken(), GEMINI_API_KEY: "child-key" },
+			platform: "darwin",
+			keychainEntry: lookup,
+		});
+		expect(decision).toEqual({ env: {}, reason: "no-refreshable-token-file" });
+		expect(lookup).not.toHaveBeenCalled();
+	});
+
+	it("resolves the child's default store from the child HOME", () => {
+		vi.stubEnv("HOME", temporaryRoot());
+		const childHome = temporaryRoot();
+		const store = path.join(childHome, ".gemini", "antigravity-acp");
+		fs.mkdirSync(store, { recursive: true });
+		fs.writeFileSync(path.join(store, "acp_token.json"), refreshable);
+		const decision = resolveCredentialStorageDecision({
+			env: { HOME: childHome },
+			platform: "darwin",
+			keychainEntry: () => false,
+		});
+		expect(decision.reason).toBe("missing-keychain-entry");
 	});
 });

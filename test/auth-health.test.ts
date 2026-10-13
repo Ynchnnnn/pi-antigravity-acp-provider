@@ -70,4 +70,20 @@ describe("Antigravity auth health", () => {
 			else process.env.GEMINI_HOME = previous;
 		}
 	});
+
+	it("resolves the store from the environment it is given", () => {
+		expect(resolveAntigravityAcpDirectory({ HOME: "/child/home" })).toBe(
+			path.join("/child/home", ".gemini", "antigravity-acp"),
+		);
+		expect(resolveAntigravityAcpDirectory({ HOME: "/child/home", GEMINI_HOME: "/child/workspace" })).toBe(
+			path.join("/child/workspace", "antigravity-acp"),
+		);
+	});
+
+	it("reads the API key from the inspected environment only", () => {
+		const directory = root();
+		fs.writeFileSync(path.join(directory, "acp_token.json"), '{"refresh_token":"secret"}');
+		expect(inspectAntigravityAuth(directory, { GEMINI_API_KEY: "child-key" }).status).toBe("api-key-env");
+		expect(inspectAntigravityAuth(directory, {}).status).toBe("oauth-refreshable");
+	});
 });
